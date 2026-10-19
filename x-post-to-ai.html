@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ポスト→AIプロンプト</title>
+<meta name="description" content="XのポストURLから本文・プロフィール・画像を取得し、Claude/ChatGPTに貼る用の文章を作るツール">
+<style>
+:root{
+  --bg:#f6f7f9;--card:#fff;--ink:#0f1419;--sub:#536471;--line:#e3e7ea;
+  --accent:#1d9bf0;--accent-ink:#fff;--soft:#eef6fd;--warn:#b54708;--warn-bg:#fff6e5;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0b0e11;--card:#16181c;--ink:#e7e9ea;--sub:#8b98a5;--line:#2f3336;
+    --accent:#1d9bf0;--accent-ink:#fff;--soft:#10202e;--warn:#f5b041;--warn-bg:#2a2112;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0b0e11;--card:#16181c;--ink:#e7e9ea;--sub:#8b98a5;--line:#2f3336;
+  --accent:#1d9bf0;--accent-ink:#fff;--soft:#10202e;--warn:#f5b041;--warn-bg:#2a2112;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP","Yu Gothic UI",sans-serif;
+  line-height:1.6;font-size:15px}
+.wrap{max-width:760px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:20px;margin:4px 0 2px}
+.lead{color:var(--sub);font-size:13px;margin:0 0 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+.row{display:flex;gap:8px}
+input[type=text],textarea,select{width:100%;font:inherit;color:var(--ink);background:var(--bg);
+  border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+textarea{resize:vertical}
+button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);
+  border-radius:999px;padding:8px 14px;cursor:pointer;white-space:nowrap}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+button:disabled{opacity:.5;cursor:default}
+.muted{color:var(--sub);font-size:13px}
+.err{color:var(--warn);background:var(--warn-bg);border-radius:10px;padding:10px 12px;font-size:14px;display:none;margin-top:10px;white-space:pre-wrap}
+.hidden{display:none!important}
+.author{display:flex;gap:12px;align-items:flex-start}
+.author img{width:56px;height:56px;border-radius:50%;object-fit:cover;flex:none;background:var(--line)}
+.aname{font-weight:700;font-size:16px}
+.ahandle{color:var(--sub);font-size:14px}
+.bio{white-space:pre-wrap;margin:8px 0 6px;font-size:14px}
+.meta{display:flex;flex-wrap:wrap;gap:4px 14px;color:var(--sub);font-size:13px}
+.meta b{color:var(--ink)}
+.text{white-space:pre-wrap;font-size:16px;margin:12px 0;word-break:break-word}
+.quote{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:10px 0}
+.quote .text{font-size:14px;margin:4px 0}
+.imgs{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:10px}
+.imgbox{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg)}
+.imgbox img{display:block;width:100%;height:160px;object-fit:cover;cursor:zoom-in}
+.imgbox .acts{display:flex;gap:6px;padding:6px;justify-content:center}
+.imgbox .acts button{padding:4px 10px;font-size:12px}
+.sec-title{font-weight:700;margin:0 0 10px;font-size:15px}
+.opts{display:flex;flex-wrap:wrap;gap:6px 16px;margin:10px 0;font-size:14px}
+.opts label{display:flex;gap:6px;align-items:center;cursor:pointer}
+.presets{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.presets button{font-size:13px;padding:6px 12px}
+.presets button.on{background:var(--soft);border-color:var(--accent);color:var(--accent);font-weight:600}
+#out{min-height:260px;font-size:13px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:var(--bg);
+  padding:8px 16px;border-radius:999px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.show{opacity:1}
+.badge{display:inline-block;font-size:11px;border:1px solid var(--line);border-radius:6px;padding:0 6px;color:var(--sub);margin-left:6px}
+a{color:var(--accent)}
+@media (max-width:520px){.row{flex-direction:column}.row button{width:100%}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>ポスト→AIプロンプト</h1>
+  <p class="lead">XのポストURLを貼ると、本文・プロフィール・画像を表示して、Claude / ChatGPT に貼る用の文章を作ります。</p>
+
+  <div class="card">
+    <div class="row">
+      <input id="url" type="text" placeholder="https://x.com/○○/status/1234567890" autocomplete="off" inputmode="url">
+      <button id="go" class="primary">取得</button>
+    </div>
+    <div id="err" class="err"></div>
+    <p class="muted" style="margin:8px 0 0">x.com / twitter.com / fxtwitter / vxtwitter のURL、ポストIDだけでもOK。鍵アカ・削除済みポストは取得できません。</p>
+  </div>
+
+  <div id="result" class="hidden">
+    <div class="card">
+      <div class="author">
+        <img id="avatar" alt="">
+        <div style="min-width:0">
+          <div class="aname" id="aname"></div>
+          <div class="ahandle" id="ahandle"></div>
+        </div>
+      </div>
+      <div class="bio" id="bio"></div>
+      <div class="meta" id="ameta"></div>
+    </div>
+
+    <div class="card">
+      <div class="text" id="ptext"></div>
+      <div id="quote"></div>
+      <div class="imgs" id="imgs"></div>
+      <div class="meta" id="pmeta" style="margin-top:12px"></div>
+      <div class="btns" id="imgBtns"></div>
+    </div>
+
+    <div class="card">
+      <p class="sec-title">AIに送る文章</p>
+      <div class="presets" id="presets"></div>
+      <textarea id="ask" rows="3" placeholder="AIへの依頼内容（プリセットを選ぶと入ります。自由に書き換え可）"></textarea>
+      <div class="opts">
+        <label><input type="checkbox" id="oProfile" checked>プロフィール</label>
+        <label><input type="checkbox" id="oStats" checked>反応数・日時</label>
+        <label><input type="checkbox" id="oQuote" checked>引用元ポスト</label>
+        <label><input type="checkbox" id="oImgUrl">画像URLを載せる</label>
+        <label><input type="checkbox" id="oImgNote" checked>「画像を添付」の注記</label>
+      </div>
+      <textarea id="out" rows="14" spellcheck="false"></textarea>
+      <div class="btns">
+        <button id="copy" class="primary">文章をコピー</button>
+        <button id="openClaude">コピーしてClaudeを開く</button>
+        <button id="openGpt">コピーしてChatGPTを開く</button>
+      </div>
+      <p class="muted" style="margin:8px 0 0">画像はURLだけだとAIが中身を見られないことが多いので、上の「画像をコピー」か「保存」でAIのチャットに直接貼り付けるのがおすすめです。</p>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const store = {
+  get(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } },
+  set(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+};
+
+const PRESETS = [
+  ["解説", "このポストの内容と、投稿者がどういう意図で書いたのかを分かりやすく解説してください。背景知識が必要なら補足してください。"],
+  ["要約", "このポストを3行で要約してください。"],
+  ["返信案", "このポストへの返信（リプライ）案を、トーンを変えて3つ作ってください。各140字以内で。"],
+  ["引用案", "このポストを引用ポストするときの文案を3つ作ってください。"],
+  ["ファクトチェック", "このポストに含まれる事実関係の主張を洗い出し、それぞれ正確かどうか、根拠とともに検証してください。不確かな点は不確かだと明示してください。"],
+  ["反応予測", "このポストが読者にどう受け取られそうか、好意的・批判的それぞれの反応を予測してください。炎上リスクがあれば指摘してください。"],
+  ["画像の説明", "添付した画像に何が写っているか、ポスト本文との関係も含めて説明してください。"],
+  ["自由", ""]
+];
+
+let data = null;   // normalized post
+let preset = store.get("xp_preset") || "解説";
+
+function toast(msg){
+  const t=$("toast"); t.textContent=msg; t.classList.add("show");
+  clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove("show"),1600);
+}
+function showErr(msg){ const e=$("err"); e.textContent=msg; e.style.display=msg?"block":"none"; }
+function n(v){ return (v===undefined||v===null||v==="")?null:Number(v).toLocaleString("ja-JP"); }
+function fmtDate(v){
+  if(!v) return "";
+  const d = typeof v==="number" ? new Date(v*1000) : new Date(v);
+  if(isNaN(d)) return String(v);
+  return d.toLocaleString("ja-JP",{year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"});
+}
+
+function parseUrl(s){
+  s = s.trim();
+  if(/^\d{5,25}$/.test(s)) return {user:"i", id:s};
+  const m = s.match(/(?:twitter|x|fxtwitter|fixupx|vxtwitter|fixvx)\.com\/(?:#!\/)?([^\/?#]+)\/status(?:es)?\/(\d+)/i);
+  if(m) return {user: m[1]==="i"?"i":m[1], id:m[2]};
+  const m2 = s.match(/\/i\/web\/status\/(\d+)/);
+  if(m2) return {user:"i", id:m2[1]};
+  return null;
+}
+
+/* ---------- 取得（FxTwitter → VxTwitter フォールバック） ---------- */
+// 中継（CORS回避用の公開プロキシ）。直接取得が通らない環境向けの予備
+function viaProxy(u){ return "https://api.allorigins.win/raw?url=" + encodeURIComponent(u); }
+async function getJson(u, proxy){
+  const r = await fetch(proxy ? viaProxy(u) : u, {cache:"no-store"});
+  const txt = await r.text();
+  let j = null; try{ j = JSON.parse(txt); }catch(e){}
+  return {r, j};
+}
+async function fetchFx(user,id,proxy){
+  const {r,j} = await getJson(`https://api.fxtwitter.com/${encodeURIComponent(user)}/status/${id}`, proxy);
+  if(!j) throw new Error(`HTTP ${r.status}（JSONではない応答）`);
+  if(!j.tweet){
+    if(j.code===404 || r.status===404) throw new Error("ポストが見つかりません（削除・鍵アカ・URL違い）");
+    throw new Error(j.message || ("HTTP "+r.status));
+  }
+  return normFx(j.tweet);
+}
+function normFx(t){
+  const a = t.author||{};
+  const photos = ((t.media&&t.media.photos)||[]).map(p=>({url:p.url, alt:p.altText||""}));
+  const videos = ((t.media&&t.media.videos)||[]).map(v=>({thumb:v.thumbnail_url, url:v.url, type:v.type}));
+  let text = t.raw_text?.text || t.text || "";
+  let article = null;
+  if(t.article){
+    const blocks = (t.article.content&&t.article.content.blocks)||[];
+    article = {title:t.article.title||"", body:blocks.map(b=>b.text).filter(Boolean).join("\n\n")};
+  }
+  return {
+    id:t.id, url:t.url || `https://x.com/${a.screen_name}/status/${t.id}`,
+    text, article, lang:t.lang,
+    date: t.created_timestamp || t.created_at,
+    likes:t.likes, rts:t.retweets, replies:t.replies, views:t.views, bookmarks:t.bookmarks,
+    replyingTo: t.replying_to || null,
+    poll: t.poll ? t.poll.choices.map(c=>`${c.label}（${c.percentage}%）`) : null,
+    photos, videos,
+    author:{
+      name:a.name, handle:a.screen_name, avatar:(a.avatar_url||"").replace("_normal","_400x400"),
+      bio:a.description||"", location:a.location||"", website:(a.website&&(a.website.display_url||a.website.url))||"",
+      followers:a.followers, following:a.following, posts:a.tweets, joined:a.joined
+    },
+    quote: t.quote ? normFx(t.quote) : null,
+    source:"FxTwitter"
+  };
+}
+async function fetchVx(user,id,proxy){
+  const {r,j} = await getJson(`https://api.vxtwitter.com/${encodeURIComponent(user)}/status/${id}`, proxy);
+  if(!j) throw new Error(`HTTP ${r.status}（JSONではない応答）`);
+  if(!j.tweetID) throw new Error(j.error || j.message || ("HTTP "+r.status));
+  return normVx(j);
+}
+function normVx(j){
+  const me = j.media_extended||[];
+  return {
+    id:j.tweetID, url:j.tweetURL, text:j.text||"", article:null, lang:j.lang,
+    date:j.date_epoch||j.date, likes:j.likes, rts:j.retweets, replies:j.replies, views:null, bookmarks:null,
+    replyingTo:j.replyingTo||null, poll:null,
+    photos: me.filter(m=>m.type==="image").map(m=>({url:m.url, alt:m.altText||""})),
+    videos: me.filter(m=>m.type!=="image").map(m=>({thumb:m.thumbnail_url,url:m.url,type:m.type})),
+    author:{name:j.user_name, handle:j.user_screen_name, avatar:(j.user_profile_image_url||"").replace("_normal","_400x400"),
+      bio:"", location:"", website:"", followers:null, following:null, posts:null, joined:null},
+    quote: j.qrt ? normVx(j.qrt) : null,
+    source:"VxTwitter（プロフィール文は取得不可）"
+  };
+}
+
+async function load(){
+  showErr("");
+  const p = parseUrl($("url").value);
+  if(!p){ showErr("ポストのURLとして読み取れませんでした。…/status/数字 の形のURLを貼ってください。"); return; }
+  $("go").disabled = true; $("go").textContent = "取得中…";
+  const routes = [
+    ["FxTwitter", ()=>fetchFx(p.user,p.id)],
+    ["VxTwitter", ()=>fetchVx(p.user,p.id)],
+    ["FxTwitter（中継経由）", ()=>fetchFx(p.user,p.id,true)],
+    ["VxTwitter（中継経由）", ()=>fetchVx(p.user,p.id,true)],
+  ];
+  const errs = [];
+  data = null;
+  for(const [name,fn] of routes){
+    try{ data = await withTimeout(fn(), 10000); break; }
+    catch(e){ errs.push(`${name}：${describe(e)}`); }
+  }
+  $("go").disabled = false; $("go").textContent = "取得";
+  if(data){
+    render(); build();
+    $("result").classList.remove("hidden");
+    return;
+  }
+  $("result").classList.add("hidden");
+  let hint = "";
+  if(location.protocol==="file:") hint = "\n\n⚠ このファイルをPCから直接開いています（file://）。ブラウザの制限で外部APIに接続できないことがあるので、GitHub Pagesなどに置いて https:// で開いてください。";
+  else if(errs.every(s=>s.includes("接続できません"))) hint = "\n\n⚠ どの経路にも接続できていません。Claudeのプレビュー画面など、外部通信が禁止された場所で開いている可能性があります。GitHub Pagesに置いて普通のブラウザで開いてください。広告ブロッカーが原因のこともあります。";
+  showErr("取得できませんでした。\n" + errs.join("\n") + hint);
+}
+function withTimeout(pr, ms){
+  return Promise.race([pr, new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),ms))]);
+}
+function describe(e){
+  const m = String(e && e.message || e);
+  if(e instanceof TypeError || /Failed to fetch|NetworkError|Load failed/i.test(m)) return "接続できません（通信ブロック／CORS）";
+  if(m==="timeout") return "応答なし（10秒）";
+  return m;
+}
+
+/* ---------- 表示 ---------- */
+function esc(s){ return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+function render(){
+  const a = data.author;
+  $("avatar").src = a.avatar||""; $("avatar").alt = a.name||"";
+  $("aname").innerHTML = esc(a.name) + `<span class="badge">${esc(data.source)}</span>`;
+  $("ahandle").textContent = "@"+(a.handle||"");
+  $("bio").textContent = a.bio || "";
+  $("bio").style.display = a.bio ? "" : "none";
+  const am = [];
+  if(n(a.followers)) am.push(`<span><b>${n(a.followers)}</b> フォロワー</span>`);
+  if(n(a.following)) am.push(`<span><b>${n(a.following)}</b> フォロー中</span>`);
+  if(a.location) am.push(`<span>📍${esc(a.location)}</span>`);
+  if(a.website) am.push(`<span>🔗${esc(a.website)}</span>`);
+  if(a.joined) am.push(`<span>${esc(fmtDate(a.joined))} 登録</span>`);
+  $("ameta").innerHTML = am.join("");
+
+  let body = "";
+  if(data.replyingTo) body += `↩︎ @${data.replyingTo} への返信\n\n`;
+  body += data.text;
+  if(data.article) body += `\n\n【記事】${data.article.title}\n\n${data.article.body}`;
+  if(data.poll) body += `\n\n【投票】\n・` + data.poll.join("\n・");
+  $("ptext").textContent = body;
+
+  $("quote").innerHTML = data.quote ? `<div class="quote">
+      <div class="muted">引用元：<b>${esc(data.quote.author.name)}</b> @${esc(data.quote.author.handle)}</div>
+      <div class="text">${esc(data.quote.text)}</div>
+      ${data.quote.photos.length?`<div class="muted">画像 ${data.quote.photos.length}枚</div>`:""}
+    </div>` : "";
+
+  // 画像（本文＋引用元）
+  const all = allImages();
+  $("imgs").innerHTML = all.map((im,i)=>`
+    <div class="imgbox">
+      <img src="${esc(im.url)}" alt="${esc(im.alt||im.label)}" data-i="${i}" loading="lazy">
+      <div class="acts">
+        <button data-copy="${i}">コピー</button>
+        <button data-dl="${i}">保存</button>
+      </div>
+    </div>`).join("");
+  $("imgBtns").innerHTML = all.length>1 ? `<button id="dlAll">画像をすべて保存（${all.length}枚）</button>` : "";
+
+  const pm = [];
+  if(data.date) pm.push(`<span>${esc(fmtDate(data.date))}</span>`);
+  if(n(data.views)) pm.push(`<span><b>${n(data.views)}</b> 表示</span>`);
+  if(n(data.likes)) pm.push(`<span><b>${n(data.likes)}</b> いいね</span>`);
+  if(n(data.rts)) pm.push(`<span><b>${n(data.rts)}</b> リポスト</span>`);
+  if(n(data.replies)) pm.push(`<span><b>${n(data.replies)}</b> 返信</span>`);
+  if(n(data.bookmarks)) pm.push(`<span><b>${n(data.bookmarks)}</b> ブックマーク</span>`);
+  pm.push(`<a href="${esc(data.url)}" target="_blank" rel="noopener">元のポスト</a>`);
+  $("pmeta").innerHTML = pm.join("");
+}
+
+function allImages(){
+  const list = [];
+  data.photos.forEach((p,i)=>list.push({...p,label:`画像${i+1}`}));
+  data.videos.forEach((v,i)=>v.thumb && list.push({url:v.thumb,alt:"",label:`動画${i+1}のサムネイル`}));
+  if(data.quote){
+    data.quote.photos.forEach((p,i)=>list.push({...p,label:`引用元の画像${i+1}`}));
+  }
+  return list;
+}
+
+/* ---------- 画像のコピー・保存 ---------- */
+function origUrl(u){
+  // pbs.twimg.com/media/xxx.jpg → 原寸
+  if(/pbs\.twimg\.com\/media\//.test(u)){
+    const base = u.split("?")[0];
+    const m = base.match(/\.(jpg|jpeg|png|webp)$/i);
+    return m ? base.replace(/\.(jpg|jpeg|png|webp)$/i,"") + `?format=${m[1].toLowerCase()==="jpeg"?"jpg":m[1].toLowerCase()}&name=orig` : u;
+  }
+  return u;
+}
+async function getBlob(u){
+  const r = await fetch(origUrl(u),{mode:"cors"});
+  if(!r.ok) throw new Error("fetch");
+  return await r.blob();
+}
+async function copyImage(i){
+  const im = allImages()[i];
+  try{
+    const blob = await getBlob(im.url);
+    const bmp = await createImageBitmap(blob);
+    const c = document.createElement("canvas"); c.width=bmp.width; c.height=bmp.height;
+    c.getContext("2d").drawImage(bmp,0,0);
+    const png = await new Promise(res=>c.toBlob(res,"image/png"));
+    await navigator.clipboard.write([new ClipboardItem({"image/png":png})]);
+    toast("画像をコピーしました。AIのチャット欄に貼り付けてください");
+  }catch(e){
+    window.open(origUrl(im.url),"_blank","noopener");
+    toast("コピーできない環境のため、画像を新しいタブで開きました");
+  }
+}
+async function dlImage(i){
+  const im = allImages()[i];
+  const name = `x_${data.id}_${i+1}.${(origUrl(im.url).match(/format=(\w+)/)||[,"jpg"])[1]}`;
+  try{
+    const blob = await getBlob(im.url);
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href),3000);
+  }catch(e){
+    window.open(origUrl(im.url),"_blank","noopener");
+  }
+}
+
+/* ---------- プロンプト生成 ---------- */
+function postBlock(p, label, withStats){
+  const L = [];
+  L.push(`■ ${label}`);
+  L.push(`投稿者：${p.author.name}（@${p.author.handle}）`);
+  if(withStats && p.date) L.push(`投稿日時：${fmtDate(p.date)}`);
+  if(p.replyingTo) L.push(`返信先：@${p.replyingTo}`);
+  L.push(`URL：${p.url}`);
+  L.push("本文：");
+  L.push('"""');
+  L.push(p.text || "（本文なし）");
+  if(p.article) L.push(`\n【記事タイトル】${p.article.title}\n${p.article.body}`);
+  if(p.poll) L.push("\n【投票】\n・" + p.poll.join("\n・"));
+  L.push('"""');
+  if(withStats){
+    const s = [];
+    if(n(p.views)) s.push(`表示${n(p.views)}`);
+    if(n(p.likes)) s.push(`いいね${n(p.likes)}`);
+    if(n(p.rts)) s.push(`リポスト${n(p.rts)}`);
+    if(n(p.replies)) s.push(`返信${n(p.replies)}`);
+    if(s.length) L.push(`反応：${s.join(" / ")}`);
+  }
+  return L.join("\n");
+}
+
+function build(){
+  if(!data) return;
+  const o = id => $(id).checked;
+  const out = [];
+  const ask = $("ask").value.trim();
+  out.push("以下はX（旧Twitter）のポストの内容です。");
+  if(ask) out.push("\n【依頼】\n" + ask);
+
+  if(o("oProfile")){
+    const a = data.author, L = ["\n■ 投稿者のプロフィール", `名前：${a.name}（@${a.handle}）`];
+    if(a.bio) L.push(`自己紹介：${a.bio.replace(/\n+/g," ")}`);
+    const f = [];
+    if(n(a.followers)) f.push(`フォロワー${n(a.followers)}`);
+    if(n(a.following)) f.push(`フォロー${n(a.following)}`);
+    if(f.length) L.push(f.join(" / "));
+    if(a.location) L.push(`場所：${a.location}`);
+    if(a.website) L.push(`Web：${a.website}`);
+    out.push(L.join("\n"));
+  }
+
+  out.push("\n" + postBlock(data, "ポスト", o("oStats")));
+
+  if(data.quote && o("oQuote")){
+    out.push("\n" + postBlock(data.quote, "引用元のポスト", o("oStats")));
+  }
+
+  const imgs = allImages().filter(im => o("oQuote") || !im.label.startsWith("引用元"));
+  if(imgs.length){
+    const L = [`\n■ 画像（${imgs.length}枚）`];
+    imgs.forEach(im=>{
+      let line = `・${im.label}`;
+      if(im.alt) line += `（代替テキスト：${im.alt}）`;
+      if(o("oImgUrl")) line += `：${origUrl(im.url)}`;
+      L.push(line);
+    });
+    if(o("oImgNote")) L.push("※画像はこのメッセージに添付しています。画像の内容も踏まえて回答してください。");
+    out.push(L.join("\n"));
+  }
+  $("out").value = out.join("\n");
+}
+
+async function copyOut(){
+  const t = $("out").value;
+  try{ await navigator.clipboard.writeText(t); }
+  catch(e){ $("out").select(); document.execCommand("copy"); }
+  toast("コピーしました");
+}
+
+/* ---------- イベント ---------- */
+function renderPresets(){
+  $("presets").innerHTML = PRESETS.map(([k])=>`<button data-p="${k}" class="${k===preset?"on":""}">${k}</button>`).join("");
+}
+$("presets").addEventListener("click",e=>{
+  const b = e.target.closest("button[data-p]"); if(!b) return;
+  preset = b.dataset.p; store.set("xp_preset",preset);
+  $("ask").value = (PRESETS.find(p=>p[0]===preset)||[,""])[1];
+  renderPresets(); build();
+});
+$("go").addEventListener("click",load);
+$("url").addEventListener("keydown",e=>{ if(e.key==="Enter") load(); });
+$("url").addEventListener("paste",()=>setTimeout(()=>{ if(parseUrl($("url").value)) load(); },0));
+["ask","oProfile","oStats","oQuote","oImgUrl","oImgNote"].forEach(id=>$(id).addEventListener("input",build));
+$("copy").addEventListener("click",copyOut);
+$("openClaude").addEventListener("click",async()=>{ await copyOut(); window.open("https://claude.ai/new","_blank","noopener"); });
+$("openGpt").addEventListener("click",async()=>{ await copyOut(); window.open("https://chatgpt.com/","_blank","noopener"); });
+document.addEventListener("click",e=>{
+  const c = e.target.closest("[data-copy]"); if(c) return copyImage(+c.dataset.copy);
+  const d = e.target.closest("[data-dl]"); if(d) return dlImage(+d.dataset.dl);
+  if(e.target.id==="dlAll"){ allImages().forEach((_,i)=>setTimeout(()=>dlImage(i),i*400)); return; }
+  const im = e.target.closest(".imgbox img"); if(im) window.open(origUrl(allImages()[+im.dataset.i].url),"_blank","noopener");
+});
+
+// 初期化
+renderPresets();
+$("ask").value = (PRESETS.find(p=>p[0]===preset)||PRESETS[0])[1];
+const q = new URLSearchParams(location.search).get("url");
+if(q){ $("url").value = q; load(); }
+</script>
+</body>
+</html>
