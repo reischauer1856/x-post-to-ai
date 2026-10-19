@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ポスト→AIプロンプト</title>
-<meta name="description" content="XのポストURLから本文・プロフィール・画像を取得し、Claude/ChatGPTに貼る用の文章を作るツール">
+<meta name="description" content="XのポストURLから本文・プロフィール・画像/動画を取得し、複数ポストを順番にまとめてClaude/ChatGPTに貼る文章を作るツール">
 <style>
 :root{
   --bg:#f6f7f9;--card:#fff;--ink:#0f1419;--sub:#536471;--line:#e3e7ea;
@@ -29,101 +29,91 @@ h1{font-size:20px;margin:4px 0 2px}
 .lead{color:var(--sub);font-size:13px;margin:0 0 16px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
 .row{display:flex;gap:8px}
-input[type=text],textarea,select{width:100%;font:inherit;color:var(--ink);background:var(--bg);
+input[type=text],textarea{width:100%;font:inherit;color:var(--ink);background:var(--bg);
   border:1px solid var(--line);border-radius:10px;padding:10px 12px}
 textarea{resize:vertical}
 button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);
   border-radius:999px;padding:8px 14px;cursor:pointer;white-space:nowrap}
 button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
-button:disabled{opacity:.5;cursor:default}
+button:disabled{opacity:.4;cursor:default}
 .muted{color:var(--sub);font-size:13px}
 .err{color:var(--warn);background:var(--warn-bg);border-radius:10px;padding:10px 12px;font-size:14px;display:none;margin-top:10px;white-space:pre-wrap}
 .hidden{display:none!important}
-.author{display:flex;gap:12px;align-items:flex-start}
-.author img{width:56px;height:56px;border-radius:50%;object-fit:cover;flex:none;background:var(--line)}
-.aname{font-weight:700;font-size:16px}
-.ahandle{color:var(--sub);font-size:14px}
-.bio{white-space:pre-wrap;margin:8px 0 6px;font-size:14px}
-.meta{display:flex;flex-wrap:wrap;gap:4px 14px;color:var(--sub);font-size:13px}
+.post-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.num{flex:none;width:28px;height:28px;border-radius:50%;background:var(--accent);color:var(--accent-ink);
+  display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px}
+.post-head img{width:44px;height:44px;border-radius:50%;object-fit:cover;flex:none;background:var(--line)}
+.who{min-width:0;flex:1}
+.aname{font-weight:700;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ahandle{color:var(--sub);font-size:13px}
+.ctrl{display:flex;gap:4px;flex:none}
+.ctrl button{padding:4px 9px;font-size:13px}
+.bio{white-space:pre-wrap;margin:4px 0;font-size:13px;color:var(--sub)}
+.meta{display:flex;flex-wrap:wrap;gap:2px 12px;color:var(--sub);font-size:12px}
 .meta b{color:var(--ink)}
-.text{white-space:pre-wrap;font-size:16px;margin:12px 0;word-break:break-word}
-.quote{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:10px 0}
+.text{white-space:pre-wrap;font-size:15px;margin:10px 0;word-break:break-word}
+.quote{border:1px solid var(--line);border-radius:12px;padding:8px 12px;margin:8px 0}
 .quote .text{font-size:14px;margin:4px 0}
-.imgs{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:10px}
-.imgbox{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg)}
-.imgbox img{display:block;width:100%;height:160px;object-fit:cover;cursor:zoom-in}
+.imgs{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-top:8px}
+.imgbox{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg);position:relative}
+.imgbox img{display:block;width:100%;height:140px;object-fit:cover;cursor:zoom-in}
+.imgbox .lab{position:absolute;top:6px;left:6px;background:rgba(0,0,0,.65);color:#fff;font-size:11px;border-radius:6px;padding:1px 6px}
+.imgbox .play{position:absolute;top:44px;left:50%;transform:translateX(-50%);width:44px;height:44px;border-radius:50%;
+  background:rgba(0,0,0,.6);color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;pointer-events:none}
 .imgbox .acts{display:flex;gap:6px;padding:6px;justify-content:center}
-.imgbox .acts button{padding:4px 10px;font-size:12px}
-.sec-title{font-weight:700;margin:0 0 10px;font-size:15px}
-.opts{display:flex;flex-wrap:wrap;gap:6px 16px;margin:10px 0;font-size:14px}
+.imgbox .acts button{padding:3px 10px;font-size:12px}
+.sec-title{font-weight:700;margin:0 0 6px;font-size:15px}
+.opts{display:flex;flex-wrap:wrap;gap:6px 16px;margin:8px 0 10px;font-size:14px}
 .opts label{display:flex;gap:6px;align-items:center;cursor:pointer}
-.presets{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
-.presets button{font-size:13px;padding:6px 12px}
-.presets button.on{background:var(--soft);border-color:var(--accent);color:var(--accent);font-weight:600}
-#out{min-height:260px;font-size:13px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+#out{min-height:240px;font-size:13px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:var(--bg);
-  padding:8px 16px;border-radius:999px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none}
+  padding:8px 16px;border-radius:999px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:9}
 .toast.show{opacity:1}
-.badge{display:inline-block;font-size:11px;border:1px solid var(--line);border-radius:6px;padding:0 6px;color:var(--sub);margin-left:6px}
+.empty{text-align:center;color:var(--sub);font-size:14px;padding:22px 0}
+.list-head{display:flex;justify-content:space-between;align-items:center;margin:4px 2px 8px}
 a{color:var(--accent)}
-@media (max-width:520px){.row{flex-direction:column}.row button{width:100%}}
+@media (max-width:520px){
+  .row{flex-wrap:wrap}.row input{flex:1 1 100%}.row button{flex:1}
+}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>ポスト→AIプロンプト</h1>
-  <p class="lead">XのポストURLを貼ると、本文・プロフィール・画像を表示して、Claude / ChatGPT に貼る用の文章を作ります。</p>
+  <p class="lead">XのポストURLを貼るたびに下へ追加されます。並んだ順（1→2→3…）にまとめて、Claude / ChatGPT に貼る文章を作ります。</p>
 
   <div class="card">
     <div class="row">
       <input id="url" type="text" placeholder="https://x.com/○○/status/1234567890" autocomplete="off" inputmode="url">
       <button id="go" class="primary">取得</button>
+      <button id="clearUrl" title="入力欄を空にする">URL削除</button>
     </div>
     <div id="err" class="err"></div>
-    <p class="muted" style="margin:8px 0 0">x.com / twitter.com / fxtwitter / vxtwitter のURL、ポストIDだけでもOK。鍵アカ・削除済みポストは取得できません。</p>
+    <p class="muted" style="margin:8px 0 0">URLを貼り付けると自動で取得・追加します。鍵アカ・削除済みポストは取得できません。</p>
   </div>
 
-  <div id="result" class="hidden">
-    <div class="card">
-      <div class="author">
-        <img id="avatar" alt="">
-        <div style="min-width:0">
-          <div class="aname" id="aname"></div>
-          <div class="ahandle" id="ahandle"></div>
-        </div>
-      </div>
-      <div class="bio" id="bio"></div>
-      <div class="meta" id="ameta"></div>
-    </div>
+  <div class="list-head">
+    <span class="muted" id="count">0件</span>
+    <button id="clearAll" disabled>すべて削除</button>
+  </div>
+  <div id="list"><div class="card empty">まだポストがありません</div></div>
 
-    <div class="card">
-      <div class="text" id="ptext"></div>
-      <div id="quote"></div>
-      <div class="imgs" id="imgs"></div>
-      <div class="meta" id="pmeta" style="margin-top:12px"></div>
-      <div class="btns" id="imgBtns"></div>
+  <div class="card" id="outCard">
+    <p class="sec-title">AIに送る文章</p>
+    <div class="opts">
+      <label><input type="checkbox" id="oProfile" checked>プロフィール</label>
+      <label><input type="checkbox" id="oStats" checked>日時・反応数</label>
+      <label><input type="checkbox" id="oQuote" checked>引用元ポスト</label>
+      <label><input type="checkbox" id="oMediaUrl">画像/動画のURL</label>
     </div>
-
-    <div class="card">
-      <p class="sec-title">AIに送る文章</p>
-      <div class="presets" id="presets"></div>
-      <textarea id="ask" rows="3" placeholder="AIへの依頼内容（プリセットを選ぶと入ります。自由に書き換え可）"></textarea>
-      <div class="opts">
-        <label><input type="checkbox" id="oProfile" checked>プロフィール</label>
-        <label><input type="checkbox" id="oStats" checked>反応数・日時</label>
-        <label><input type="checkbox" id="oQuote" checked>引用元ポスト</label>
-        <label><input type="checkbox" id="oImgUrl">画像URLを載せる</label>
-        <label><input type="checkbox" id="oImgNote" checked>「画像を添付」の注記</label>
-      </div>
-      <textarea id="out" rows="14" spellcheck="false"></textarea>
-      <div class="btns">
-        <button id="copy" class="primary">文章をコピー</button>
-        <button id="openClaude">コピーしてClaudeを開く</button>
-        <button id="openGpt">コピーしてChatGPTを開く</button>
-      </div>
-      <p class="muted" style="margin:8px 0 0">画像はURLだけだとAIが中身を見られないことが多いので、上の「画像をコピー」か「保存」でAIのチャットに直接貼り付けるのがおすすめです。</p>
+    <textarea id="out" rows="14" spellcheck="false" placeholder="ポストを追加するとここに文章ができます"></textarea>
+    <div class="btns">
+      <button id="copy" class="primary">文章をコピー</button>
+      <button id="openClaude">コピーしてClaudeを開く</button>
+      <button id="openGpt">コピーしてChatGPTを開く</button>
     </div>
+    <p class="muted" style="margin:8px 0 0">画像・動画は各ポストの「コピー」「保存」から、番号順にAIのチャットへ添付してください（ラベルの「1-画像1」などが文章中の番号と対応しています）。</p>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -135,19 +125,9 @@ const store = {
   set(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
 };
 
-const PRESETS = [
-  ["解説", "このポストの内容と、投稿者がどういう意図で書いたのかを分かりやすく解説してください。背景知識が必要なら補足してください。"],
-  ["要約", "このポストを3行で要約してください。"],
-  ["返信案", "このポストへの返信（リプライ）案を、トーンを変えて3つ作ってください。各140字以内で。"],
-  ["引用案", "このポストを引用ポストするときの文案を3つ作ってください。"],
-  ["ファクトチェック", "このポストに含まれる事実関係の主張を洗い出し、それぞれ正確かどうか、根拠とともに検証してください。不確かな点は不確かだと明示してください。"],
-  ["反応予測", "このポストが読者にどう受け取られそうか、好意的・批判的それぞれの反応を予測してください。炎上リスクがあれば指摘してください。"],
-  ["画像の説明", "添付した画像に何が写っているか、ポスト本文との関係も含めて説明してください。"],
-  ["自由", ""]
-];
-
-let data = null;   // normalized post
-let preset = store.get("xp_preset") || "解説";
+let posts = [];
+try{ posts = JSON.parse(store.get("xp_posts")||"[]") || []; }catch(e){ posts = []; }
+const save = () => store.set("xp_posts", JSON.stringify(posts));
 
 function toast(msg){
   const t=$("toast"); t.textContent=msg; t.classList.add("show");
@@ -161,19 +141,19 @@ function fmtDate(v){
   if(isNaN(d)) return String(v);
   return d.toLocaleString("ja-JP",{year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"});
 }
+function esc(s){ return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
 function parseUrl(s){
   s = s.trim();
   if(/^\d{5,25}$/.test(s)) return {user:"i", id:s};
   const m = s.match(/(?:twitter|x|fxtwitter|fixupx|vxtwitter|fixvx)\.com\/(?:#!\/)?([^\/?#]+)\/status(?:es)?\/(\d+)/i);
-  if(m) return {user: m[1]==="i"?"i":m[1], id:m[2]};
+  if(m) return {user:m[1], id:m[2]};
   const m2 = s.match(/\/i\/web\/status\/(\d+)/);
   if(m2) return {user:"i", id:m2[1]};
   return null;
 }
 
-/* ---------- 取得（FxTwitter → VxTwitter フォールバック） ---------- */
-// 中継（CORS回避用の公開プロキシ）。直接取得が通らない環境向けの予備
+/* ---------- 取得 ---------- */
 function viaProxy(u){ return "https://api.allorigins.win/raw?url=" + encodeURIComponent(u); }
 async function getJson(u, proxy){
   const r = await fetch(proxy ? viaProxy(u) : u, {cache:"no-store"});
@@ -194,27 +174,25 @@ function normFx(t){
   const a = t.author||{};
   const photos = ((t.media&&t.media.photos)||[]).map(p=>({url:p.url, alt:p.altText||""}));
   const videos = ((t.media&&t.media.videos)||[]).map(v=>({thumb:v.thumbnail_url, url:v.url, type:v.type}));
-  let text = t.raw_text?.text || t.text || "";
   let article = null;
   if(t.article){
     const blocks = (t.article.content&&t.article.content.blocks)||[];
     article = {title:t.article.title||"", body:blocks.map(b=>b.text).filter(Boolean).join("\n\n")};
   }
   return {
-    id:t.id, url:t.url || `https://x.com/${a.screen_name}/status/${t.id}`,
-    text, article, lang:t.lang,
+    id:String(t.id), url:t.url || `https://x.com/${a.screen_name}/status/${t.id}`,
+    text: t.raw_text?.text || t.text || "", article,
     date: t.created_timestamp || t.created_at,
-    likes:t.likes, rts:t.retweets, replies:t.replies, views:t.views, bookmarks:t.bookmarks,
+    likes:t.likes, rts:t.retweets, replies:t.replies, views:t.views,
     replyingTo: t.replying_to || null,
     poll: t.poll ? t.poll.choices.map(c=>`${c.label}（${c.percentage}%）`) : null,
     photos, videos,
     author:{
       name:a.name, handle:a.screen_name, avatar:(a.avatar_url||"").replace("_normal","_400x400"),
       bio:a.description||"", location:a.location||"", website:(a.website&&(a.website.display_url||a.website.url))||"",
-      followers:a.followers, following:a.following, posts:a.tweets, joined:a.joined
+      followers:a.followers, following:a.following
     },
-    quote: t.quote ? normFx(t.quote) : null,
-    source:"FxTwitter"
+    quote: t.quote ? normFx(t.quote) : null
   };
 }
 async function fetchVx(user,id,proxy){
@@ -226,46 +204,15 @@ async function fetchVx(user,id,proxy){
 function normVx(j){
   const me = j.media_extended||[];
   return {
-    id:j.tweetID, url:j.tweetURL, text:j.text||"", article:null, lang:j.lang,
-    date:j.date_epoch||j.date, likes:j.likes, rts:j.retweets, replies:j.replies, views:null, bookmarks:null,
+    id:String(j.tweetID), url:j.tweetURL, text:j.text||"", article:null,
+    date:j.date_epoch||j.date, likes:j.likes, rts:j.retweets, replies:j.replies, views:null,
     replyingTo:j.replyingTo||null, poll:null,
     photos: me.filter(m=>m.type==="image").map(m=>({url:m.url, alt:m.altText||""})),
     videos: me.filter(m=>m.type!=="image").map(m=>({thumb:m.thumbnail_url,url:m.url,type:m.type})),
     author:{name:j.user_name, handle:j.user_screen_name, avatar:(j.user_profile_image_url||"").replace("_normal","_400x400"),
-      bio:"", location:"", website:"", followers:null, following:null, posts:null, joined:null},
-    quote: j.qrt ? normVx(j.qrt) : null,
-    source:"VxTwitter（プロフィール文は取得不可）"
+      bio:"", location:"", website:"", followers:null, following:null},
+    quote: j.qrt ? normVx(j.qrt) : null
   };
-}
-
-async function load(){
-  showErr("");
-  const p = parseUrl($("url").value);
-  if(!p){ showErr("ポストのURLとして読み取れませんでした。…/status/数字 の形のURLを貼ってください。"); return; }
-  $("go").disabled = true; $("go").textContent = "取得中…";
-  const routes = [
-    ["FxTwitter", ()=>fetchFx(p.user,p.id)],
-    ["VxTwitter", ()=>fetchVx(p.user,p.id)],
-    ["FxTwitter（中継経由）", ()=>fetchFx(p.user,p.id,true)],
-    ["VxTwitter（中継経由）", ()=>fetchVx(p.user,p.id,true)],
-  ];
-  const errs = [];
-  data = null;
-  for(const [name,fn] of routes){
-    try{ data = await withTimeout(fn(), 10000); break; }
-    catch(e){ errs.push(`${name}：${describe(e)}`); }
-  }
-  $("go").disabled = false; $("go").textContent = "取得";
-  if(data){
-    render(); build();
-    $("result").classList.remove("hidden");
-    return;
-  }
-  $("result").classList.add("hidden");
-  let hint = "";
-  if(location.protocol==="file:") hint = "\n\n⚠ このファイルをPCから直接開いています（file://）。ブラウザの制限で外部APIに接続できないことがあるので、GitHub Pagesなどに置いて https:// で開いてください。";
-  else if(errs.every(s=>s.includes("接続できません"))) hint = "\n\n⚠ どの経路にも接続できていません。Claudeのプレビュー画面など、外部通信が禁止された場所で開いている可能性があります。GitHub Pagesに置いて普通のブラウザで開いてください。広告ブロッカーが原因のこともあります。";
-  showErr("取得できませんでした。\n" + errs.join("\n") + hint);
 }
 function withTimeout(pr, ms){
   return Promise.race([pr, new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),ms))]);
@@ -277,77 +224,57 @@ function describe(e){
   return m;
 }
 
-/* ---------- 表示 ---------- */
-function esc(s){ return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
-
-function render(){
-  const a = data.author;
-  $("avatar").src = a.avatar||""; $("avatar").alt = a.name||"";
-  $("aname").innerHTML = esc(a.name) + `<span class="badge">${esc(data.source)}</span>`;
-  $("ahandle").textContent = "@"+(a.handle||"");
-  $("bio").textContent = a.bio || "";
-  $("bio").style.display = a.bio ? "" : "none";
-  const am = [];
-  if(n(a.followers)) am.push(`<span><b>${n(a.followers)}</b> フォロワー</span>`);
-  if(n(a.following)) am.push(`<span><b>${n(a.following)}</b> フォロー中</span>`);
-  if(a.location) am.push(`<span>📍${esc(a.location)}</span>`);
-  if(a.website) am.push(`<span>🔗${esc(a.website)}</span>`);
-  if(a.joined) am.push(`<span>${esc(fmtDate(a.joined))} 登録</span>`);
-  $("ameta").innerHTML = am.join("");
-
-  let body = "";
-  if(data.replyingTo) body += `↩︎ @${data.replyingTo} への返信\n\n`;
-  body += data.text;
-  if(data.article) body += `\n\n【記事】${data.article.title}\n\n${data.article.body}`;
-  if(data.poll) body += `\n\n【投票】\n・` + data.poll.join("\n・");
-  $("ptext").textContent = body;
-
-  $("quote").innerHTML = data.quote ? `<div class="quote">
-      <div class="muted">引用元：<b>${esc(data.quote.author.name)}</b> @${esc(data.quote.author.handle)}</div>
-      <div class="text">${esc(data.quote.text)}</div>
-      ${data.quote.photos.length?`<div class="muted">画像 ${data.quote.photos.length}枚</div>`:""}
-    </div>` : "";
-
-  // 画像（本文＋引用元）
-  const all = allImages();
-  $("imgs").innerHTML = all.map((im,i)=>`
-    <div class="imgbox">
-      <img src="${esc(im.url)}" alt="${esc(im.alt||im.label)}" data-i="${i}" loading="lazy">
-      <div class="acts">
-        <button data-copy="${i}">コピー</button>
-        <button data-dl="${i}">保存</button>
-      </div>
-    </div>`).join("");
-  $("imgBtns").innerHTML = all.length>1 ? `<button id="dlAll">画像をすべて保存（${all.length}枚）</button>` : "";
-
-  const pm = [];
-  if(data.date) pm.push(`<span>${esc(fmtDate(data.date))}</span>`);
-  if(n(data.views)) pm.push(`<span><b>${n(data.views)}</b> 表示</span>`);
-  if(n(data.likes)) pm.push(`<span><b>${n(data.likes)}</b> いいね</span>`);
-  if(n(data.rts)) pm.push(`<span><b>${n(data.rts)}</b> リポスト</span>`);
-  if(n(data.replies)) pm.push(`<span><b>${n(data.replies)}</b> 返信</span>`);
-  if(n(data.bookmarks)) pm.push(`<span><b>${n(data.bookmarks)}</b> ブックマーク</span>`);
-  pm.push(`<a href="${esc(data.url)}" target="_blank" rel="noopener">元のポスト</a>`);
-  $("pmeta").innerHTML = pm.join("");
+let busy = false;
+async function load(){
+  if(busy) return;
+  showErr("");
+  const p = parseUrl($("url").value);
+  if(!p){ showErr("ポストのURLとして読み取れませんでした。…/status/数字 の形のURLを貼ってください。"); return; }
+  if(posts.some(x=>x.id===p.id)){ showErr("このポストはすでに追加されています。"); return; }
+  busy = true; $("go").disabled = true; $("go").textContent = "取得中…";
+  const routes = [
+    ["FxTwitter", ()=>fetchFx(p.user,p.id)],
+    ["VxTwitter", ()=>fetchVx(p.user,p.id)],
+    ["FxTwitter（中継経由）", ()=>fetchFx(p.user,p.id,true)],
+    ["VxTwitter（中継経由）", ()=>fetchVx(p.user,p.id,true)],
+  ];
+  const errs = []; let got = null;
+  for(const [name,fn] of routes){
+    try{ got = await withTimeout(fn(), 10000); break; }
+    catch(e){ errs.push(`${name}：${describe(e)}`); }
+  }
+  busy = false; $("go").disabled = false; $("go").textContent = "取得";
+  if(got){
+    posts.push(got); save();
+    $("url").value = "";
+    renderList(); build();
+    toast(`${posts.length}件目を追加しました`);
+    $("url").focus();
+    return;
+  }
+  let hint = "";
+  if(location.protocol==="file:") hint = "\n\n⚠ PCから直接開いています（file://）。GitHub Pagesなど https:// で開いてください。";
+  else if(errs.every(s=>s.includes("接続できません"))) hint = "\n\n⚠ どの経路にも接続できていません。プレビュー画面や広告ブロッカーが原因の可能性があります。";
+  showErr("取得できませんでした。\n" + errs.join("\n") + hint);
 }
 
-function allImages(){
+/* ---------- メディア ---------- */
+function mediaOf(p, idx){
+  // idx: 1始まりのポスト番号
   const list = [];
-  data.photos.forEach((p,i)=>list.push({...p,label:`画像${i+1}`}));
-  data.videos.forEach((v,i)=>v.thumb && list.push({url:v.thumb,alt:"",label:`動画${i+1}のサムネイル`}));
-  if(data.quote){
-    data.quote.photos.forEach((p,i)=>list.push({...p,label:`引用元の画像${i+1}`}));
+  p.photos.forEach((m,i)=>list.push({kind:"img", url:m.url, view:m.url, alt:m.alt, label:`${idx}-画像${i+1}`}));
+  p.videos.forEach((v,i)=>list.push({kind:"video", url:v.url, view:v.thumb, alt:"", label:`${idx}-${v.type==="gif"?"GIF":"動画"}${i+1}`}));
+  if(p.quote){
+    p.quote.photos.forEach((m,i)=>list.push({kind:"img", url:m.url, view:m.url, alt:m.alt, label:`${idx}-引用元画像${i+1}`, fromQuote:true}));
+    p.quote.videos.forEach((v,i)=>list.push({kind:"video", url:v.url, view:v.thumb, alt:"", label:`${idx}-引用元動画${i+1}`, fromQuote:true}));
   }
   return list;
 }
-
-/* ---------- 画像のコピー・保存 ---------- */
 function origUrl(u){
-  // pbs.twimg.com/media/xxx.jpg → 原寸
   if(/pbs\.twimg\.com\/media\//.test(u)){
     const base = u.split("?")[0];
     const m = base.match(/\.(jpg|jpeg|png|webp)$/i);
-    return m ? base.replace(/\.(jpg|jpeg|png|webp)$/i,"") + `?format=${m[1].toLowerCase()==="jpeg"?"jpg":m[1].toLowerCase()}&name=orig` : u;
+    if(m) return base.replace(/\.(jpg|jpeg|png|webp)$/i,"") + `?format=${m[1].toLowerCase()==="jpeg"?"jpg":m[1].toLowerCase()}&name=orig`;
   }
   return u;
 }
@@ -356,44 +283,96 @@ async function getBlob(u){
   if(!r.ok) throw new Error("fetch");
   return await r.blob();
 }
-async function copyImage(i){
-  const im = allImages()[i];
+async function copyMedia(m){
+  if(m.kind==="video"){ window.open(m.url,"_blank","noopener"); toast("動画はコピーできないため、新しいタブで開きました。保存して添付してください"); return; }
   try{
-    const blob = await getBlob(im.url);
+    const blob = await getBlob(m.url);
     const bmp = await createImageBitmap(blob);
     const c = document.createElement("canvas"); c.width=bmp.width; c.height=bmp.height;
     c.getContext("2d").drawImage(bmp,0,0);
     const png = await new Promise(res=>c.toBlob(res,"image/png"));
     await navigator.clipboard.write([new ClipboardItem({"image/png":png})]);
-    toast("画像をコピーしました。AIのチャット欄に貼り付けてください");
+    toast(`${m.label}をコピーしました`);
   }catch(e){
-    window.open(origUrl(im.url),"_blank","noopener");
-    toast("コピーできない環境のため、画像を新しいタブで開きました");
+    window.open(origUrl(m.url),"_blank","noopener");
+    toast("コピーできないため、新しいタブで開きました");
   }
 }
-async function dlImage(i){
-  const im = allImages()[i];
-  const name = `x_${data.id}_${i+1}.${(origUrl(im.url).match(/format=(\w+)/)||[,"jpg"])[1]}`;
+async function dlMedia(m){
+  const ext = m.kind==="video" ? "mp4" : ((origUrl(m.url).match(/format=(\w+)/)||[,"jpg"])[1]);
+  const name = `${m.label}.${ext}`;
   try{
-    const blob = await getBlob(im.url);
+    const blob = await getBlob(m.url);
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob); a.download = name;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(a.href),3000);
   }catch(e){
-    window.open(origUrl(im.url),"_blank","noopener");
+    window.open(origUrl(m.url),"_blank","noopener");
   }
 }
 
-/* ---------- プロンプト生成 ---------- */
-function postBlock(p, label, withStats){
+/* ---------- 一覧表示 ---------- */
+function renderList(){
+  $("count").textContent = `${posts.length}件`;
+  $("clearAll").disabled = posts.length===0;
+  if(!posts.length){ $("list").innerHTML = `<div class="card empty">まだポストがありません</div>`; return; }
+  $("list").innerHTML = posts.map((p,i)=>{
+    const a = p.author, idx = i+1;
+    const am = [];
+    if(n(a.followers)) am.push(`<span><b>${n(a.followers)}</b> フォロワー</span>`);
+    if(n(a.following)) am.push(`<span><b>${n(a.following)}</b> フォロー</span>`);
+    if(a.location) am.push(`<span>📍${esc(a.location)}</span>`);
+    let body = "";
+    if(p.replyingTo) body += `↩︎ @${p.replyingTo} への返信\n\n`;
+    body += p.text;
+    if(p.article) body += `\n\n【記事】${p.article.title}\n\n${p.article.body}`;
+    if(p.poll) body += `\n\n【投票】\n・` + p.poll.join("\n・");
+    const pm = [];
+    if(p.date) pm.push(`<span>${esc(fmtDate(p.date))}</span>`);
+    if(n(p.views)) pm.push(`<span><b>${n(p.views)}</b> 表示</span>`);
+    if(n(p.likes)) pm.push(`<span><b>${n(p.likes)}</b> いいね</span>`);
+    if(n(p.rts)) pm.push(`<span><b>${n(p.rts)}</b> RP</span>`);
+    if(n(p.replies)) pm.push(`<span><b>${n(p.replies)}</b> 返信</span>`);
+    pm.push(`<a href="${esc(p.url)}" target="_blank" rel="noopener">元のポスト</a>`);
+    const media = mediaOf(p, idx);
+    return `<div class="card">
+      <div class="post-head">
+        <div class="num">${idx}</div>
+        <img src="${esc(a.avatar)}" alt="">
+        <div class="who"><div class="aname">${esc(a.name)}</div><div class="ahandle">@${esc(a.handle)}</div></div>
+        <div class="ctrl">
+          <button data-up="${i}" ${i===0?"disabled":""} title="上へ">↑</button>
+          <button data-down="${i}" ${i===posts.length-1?"disabled":""} title="下へ">↓</button>
+          <button data-del="${i}" title="削除">✕</button>
+        </div>
+      </div>
+      ${a.bio?`<div class="bio">${esc(a.bio)}</div>`:""}
+      ${am.length?`<div class="meta">${am.join("")}</div>`:""}
+      <div class="text">${esc(body)}</div>
+      ${p.quote?`<div class="quote"><div class="muted">引用元：<b>${esc(p.quote.author.name)}</b> @${esc(p.quote.author.handle)}</div><div class="text">${esc(p.quote.text)}</div></div>`:""}
+      ${media.length?`<div class="imgs">${media.map((m,k)=>`
+        <div class="imgbox">
+          <span class="lab">${esc(m.label)}</span>
+          ${m.view?`<img src="${esc(m.view)}" alt="${esc(m.alt||m.label)}" data-open="${i}:${k}" loading="lazy">`:`<div style="height:140px"></div>`}
+          ${m.kind==="video"?`<div class="play">▶</div>`:""}
+          <div class="acts">
+            <button data-copy="${i}:${k}">${m.kind==="video"?"開く":"コピー"}</button>
+            <button data-dl="${i}:${k}">保存</button>
+          </div>
+        </div>`).join("")}</div>`:""}
+      <div class="meta" style="margin-top:10px">${pm.join("")}</div>
+    </div>`;
+  }).join("");
+}
+
+/* ---------- 文章生成 ---------- */
+function bodyLines(p, withStats){
   const L = [];
-  L.push(`■ ${label}`);
-  L.push(`投稿者：${p.author.name}（@${p.author.handle}）`);
   if(withStats && p.date) L.push(`投稿日時：${fmtDate(p.date)}`);
   if(p.replyingTo) L.push(`返信先：@${p.replyingTo}`);
   L.push(`URL：${p.url}`);
-  L.push("本文：");
+  L.push('本文：');
   L.push('"""');
   L.push(p.text || "（本文なし）");
   if(p.article) L.push(`\n【記事タイトル】${p.article.title}\n${p.article.body}`);
@@ -407,84 +386,93 @@ function postBlock(p, label, withStats){
     if(n(p.replies)) s.push(`返信${n(p.replies)}`);
     if(s.length) L.push(`反応：${s.join(" / ")}`);
   }
-  return L.join("\n");
+  return L;
 }
-
 function build(){
-  if(!data) return;
+  if(!posts.length){ $("out").value = ""; return; }
   const o = id => $(id).checked;
   const out = [];
-  const ask = $("ask").value.trim();
-  out.push("以下はX（旧Twitter）のポストの内容です。");
-  if(ask) out.push("\n【依頼】\n" + ask);
-
-  if(o("oProfile")){
-    const a = data.author, L = ["\n■ 投稿者のプロフィール", `名前：${a.name}（@${a.handle}）`];
-    if(a.bio) L.push(`自己紹介：${a.bio.replace(/\n+/g," ")}`);
-    const f = [];
-    if(n(a.followers)) f.push(`フォロワー${n(a.followers)}`);
-    if(n(a.following)) f.push(`フォロー${n(a.following)}`);
-    if(f.length) L.push(f.join(" / "));
-    if(a.location) L.push(`場所：${a.location}`);
-    if(a.website) L.push(`Web：${a.website}`);
+  out.push(posts.length>1
+    ? `以下はX（旧Twitter）のポスト${posts.length}件を、この順番（${posts.map((_,i)=>i+1).join("→")}）で並べたものです。`
+    : "以下はX（旧Twitter）のポストです。");
+  const seen = {};
+  let mediaTotal = 0;
+  posts.forEach((p,i)=>{
+    const idx = i+1, a = p.author;
+    const L = [`\n━━━━ ${idx}. ${a.name}（@${a.handle}） ━━━━`];
+    if(o("oProfile")){
+      if(seen[a.handle]){
+        L.push(`プロフィール：${seen[a.handle]}と同じ人物`);
+      }else{
+        seen[a.handle] = `${idx}`;
+        if(a.bio) L.push(`プロフィール：${a.bio.replace(/\n+/g," ")}`);
+        const f = [];
+        if(n(a.followers)) f.push(`フォロワー${n(a.followers)}`);
+        if(n(a.following)) f.push(`フォロー${n(a.following)}`);
+        if(a.location) f.push(`場所：${a.location}`);
+        if(a.website) f.push(`Web：${a.website}`);
+        if(f.length) L.push(f.join(" / "));
+      }
+    }
+    L.push(...bodyLines(p, o("oStats")));
+    if(p.quote && o("oQuote")){
+      L.push(`▼ 引用元：${p.quote.author.name}（@${p.quote.author.handle}）`);
+      L.push(...bodyLines(p.quote, o("oStats")));
+    }
+    const media = mediaOf(p, idx).filter(m => o("oQuote") || !m.fromQuote);
+    if(media.length){
+      mediaTotal += media.length;
+      L.push("添付：" + media.map(m=>{
+        let s = m.label;
+        if(m.alt) s += `（代替テキスト：${m.alt}）`;
+        if(o("oMediaUrl")) s += ` ${m.kind==="img"?origUrl(m.url):m.url}`;
+        return s;
+      }).join("、"));
+    }
     out.push(L.join("\n"));
-  }
-
-  out.push("\n" + postBlock(data, "ポスト", o("oStats")));
-
-  if(data.quote && o("oQuote")){
-    out.push("\n" + postBlock(data.quote, "引用元のポスト", o("oStats")));
-  }
-
-  const imgs = allImages().filter(im => o("oQuote") || !im.label.startsWith("引用元"));
-  if(imgs.length){
-    const L = [`\n■ 画像（${imgs.length}枚）`];
-    imgs.forEach(im=>{
-      let line = `・${im.label}`;
-      if(im.alt) line += `（代替テキスト：${im.alt}）`;
-      if(o("oImgUrl")) line += `：${origUrl(im.url)}`;
-      L.push(line);
-    });
-    if(o("oImgNote")) L.push("※画像はこのメッセージに添付しています。画像の内容も踏まえて回答してください。");
-    out.push(L.join("\n"));
-  }
+  });
+  if(mediaTotal) out.push(`\n※画像・動画（計${mediaTotal}点）はこのメッセージに番号順で添付しています。`);
   $("out").value = out.join("\n");
 }
 
 async function copyOut(){
   const t = $("out").value;
+  if(!t){ toast("まだ文章がありません"); return false; }
   try{ await navigator.clipboard.writeText(t); }
   catch(e){ $("out").select(); document.execCommand("copy"); }
   toast("コピーしました");
+  return true;
 }
 
 /* ---------- イベント ---------- */
-function renderPresets(){
-  $("presets").innerHTML = PRESETS.map(([k])=>`<button data-p="${k}" class="${k===preset?"on":""}">${k}</button>`).join("");
-}
-$("presets").addEventListener("click",e=>{
-  const b = e.target.closest("button[data-p]"); if(!b) return;
-  preset = b.dataset.p; store.set("xp_preset",preset);
-  $("ask").value = (PRESETS.find(p=>p[0]===preset)||[,""])[1];
-  renderPresets(); build();
-});
 $("go").addEventListener("click",load);
 $("url").addEventListener("keydown",e=>{ if(e.key==="Enter") load(); });
 $("url").addEventListener("paste",()=>setTimeout(()=>{ if(parseUrl($("url").value)) load(); },0));
-["ask","oProfile","oStats","oQuote","oImgUrl","oImgNote"].forEach(id=>$(id).addEventListener("input",build));
+$("clearUrl").addEventListener("click",()=>{ $("url").value=""; showErr(""); $("url").focus(); });
+$("clearAll").addEventListener("click",()=>{
+  if(!confirm("追加したポストをすべて削除しますか？")) return;
+  posts = []; save(); renderList(); build();
+});
+["oProfile","oStats","oQuote","oMediaUrl"].forEach(id=>$(id).addEventListener("input",build));
 $("copy").addEventListener("click",copyOut);
-$("openClaude").addEventListener("click",async()=>{ await copyOut(); window.open("https://claude.ai/new","_blank","noopener"); });
-$("openGpt").addEventListener("click",async()=>{ await copyOut(); window.open("https://chatgpt.com/","_blank","noopener"); });
-document.addEventListener("click",e=>{
-  const c = e.target.closest("[data-copy]"); if(c) return copyImage(+c.dataset.copy);
-  const d = e.target.closest("[data-dl]"); if(d) return dlImage(+d.dataset.dl);
-  if(e.target.id==="dlAll"){ allImages().forEach((_,i)=>setTimeout(()=>dlImage(i),i*400)); return; }
-  const im = e.target.closest(".imgbox img"); if(im) window.open(origUrl(allImages()[+im.dataset.i].url),"_blank","noopener");
+$("openClaude").addEventListener("click",async()=>{ if(await copyOut()) window.open("https://claude.ai/new","_blank","noopener"); });
+$("openGpt").addEventListener("click",async()=>{ if(await copyOut()) window.open("https://chatgpt.com/","_blank","noopener"); });
+$("list").addEventListener("click",e=>{
+  const b = e.target.closest("[data-up],[data-down],[data-del],[data-copy],[data-dl],[data-open]");
+  if(!b) return;
+  const d = b.dataset;
+  const pick = s => { const [i,k] = s.split(":").map(Number); return mediaOf(posts[i], i+1)[k]; };
+  if(d.up!==undefined){ const i=+d.up; [posts[i-1],posts[i]]=[posts[i],posts[i-1]]; }
+  else if(d.down!==undefined){ const i=+d.down; [posts[i+1],posts[i]]=[posts[i],posts[i+1]]; }
+  else if(d.del!==undefined){ posts.splice(+d.del,1); }
+  else if(d.copy){ return copyMedia(pick(d.copy)); }
+  else if(d.dl){ return dlMedia(pick(d.dl)); }
+  else if(d.open){ const m = pick(d.open); return window.open(m.kind==="img"?origUrl(m.url):m.url,"_blank","noopener"); }
+  save(); renderList(); build();
 });
 
 // 初期化
-renderPresets();
-$("ask").value = (PRESETS.find(p=>p[0]===preset)||PRESETS[0])[1];
+renderList(); build();
 const q = new URLSearchParams(location.search).get("url");
 if(q){ $("url").value = q; load(); }
 </script>
