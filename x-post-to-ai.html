@@ -71,7 +71,12 @@ button:disabled{opacity:.4;cursor:default}
   padding:8px 16px;border-radius:999px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:9}
 .toast.show{opacity:1}
 .empty{text-align:center;color:var(--sub);font-size:14px;padding:22px 0}
-.list-head{display:flex;justify-content:space-between;align-items:center;margin:4px 2px 8px}
+.list-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin:4px 2px 8px}
+.bulk{display:flex;gap:6px;flex-wrap:wrap}
+.bulk button{font-size:13px;padding:5px 11px}
+.unf{display:inline-flex;align-items:center;gap:5px;font-size:13px;margin:2px 0 6px;cursor:pointer;
+  border:1px solid var(--line);border-radius:999px;padding:3px 10px}
+.unf.on{border-color:var(--warn);color:var(--warn);background:var(--warn-bg);font-weight:600}
 a{color:var(--accent)}
 @media (max-width:520px){
   .row{flex-wrap:wrap}.row input{flex:1 1 100%}.row button{flex:1}
@@ -88,6 +93,7 @@ a{color:var(--accent)}
       <input id="url" type="text" placeholder="https://x.com/○○/status/1234567890" autocomplete="off" inputmode="url">
       <button id="go" class="primary">取得</button>
       <button id="clearUrl" title="入力欄を空にする">URL削除</button>
+      <button id="toOut" title="AIに送る文章へ移動">↓文章へ</button>
     </div>
     <div id="err" class="err"></div>
     <p class="muted" style="margin:8px 0 0">URLを貼り付けると自動で取得・追加します。鍵アカ・削除済みポストは取得できません。</p>
@@ -95,7 +101,11 @@ a{color:var(--accent)}
 
   <div class="list-head">
     <span class="muted" id="count">0件</span>
-    <button id="clearAll" disabled>すべて削除</button>
+    <span class="bulk">
+      <button id="allUnf" disabled>全員を未フォローに</button>
+      <button id="noUnf" disabled>未フォロー解除</button>
+      <button id="clearAll" disabled>すべて削除</button>
+    </span>
   </div>
   <div id="list"><div class="card empty">まだポストがありません</div></div>
 
@@ -105,6 +115,8 @@ a{color:var(--accent)}
       <label><input type="checkbox" id="oProfile" checked>プロフィール</label>
       <label><input type="checkbox" id="oStats" checked>日時・反応数</label>
       <label><input type="checkbox" id="oQuote" checked>引用元ポスト</label>
+      <label><input type="checkbox" id="oQuoteMedia">引用元の画像・動画</label>
+      <label><input type="checkbox" id="oUnf" checked>未フォローの記載</label>
       <label><input type="checkbox" id="oMediaUrl">画像/動画のURL</label>
     </div>
     <textarea id="out" rows="14" spellcheck="false" placeholder="ポストを追加するとここに文章ができます"></textarea>
@@ -113,7 +125,12 @@ a{color:var(--accent)}
       <button id="openClaude">コピーしてClaudeを開く</button>
       <button id="openGpt">コピーしてChatGPTを開く</button>
     </div>
-    <p class="muted" style="margin:8px 0 0">画像・動画は各ポストの「コピー」「保存」から、番号順にAIのチャットへ添付してください（ラベルの「1-画像1」などが文章中の番号と対応しています）。</p>
+    <div class="btns">
+      <button id="copyImgs" class="primary" disabled>画像を1枚にまとめてコピー</button>
+      <button id="dlImgs" disabled>まとめ画像を保存</button>
+      <button id="toTop">↑URL入力へ</button>
+    </div>
+    <p class="muted" style="margin:8px 0 0">使い方：「文章をコピー」→AIに貼る →「画像を1枚にまとめてコピー」→同じ欄に貼る → 送信。まとめ画像には「1-画像1」などの番号ラベルが入り、文章中の番号と対応します（動画はサムネイルのみ）。</p>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -128,6 +145,19 @@ const store = {
 let posts = [];
 try{ posts = JSON.parse(store.get("xp_posts")||"[]") || []; }catch(e){ posts = []; }
 const save = () => store.set("xp_posts", JSON.stringify(posts));
+// 未フォロー（アカウント単位で記憶）
+let unf = {};
+try{ unf = JSON.parse(store.get("xp_unf")||"{}") || {}; }catch(e){ unf = {}; }
+const saveUnf = () => store.set("xp_unf", JSON.stringify(unf));
+const isUnf = h => !!unf[(h||"").toLowerCase()];
+function setUnf(h, v){ const k=(h||"").toLowerCase(); if(v) unf[k]=1; else delete unf[k]; saveUnf(); }
+// オプションのチェック状態を記憶
+const OPT_IDS = ["oProfile","oStats","oQuote","oQuoteMedia","oUnf","oMediaUrl"];
+try{
+  const s = JSON.parse(store.get("xp_opts")||"{}");
+  OPT_IDS.forEach(id=>{ if(id in s) document.getElementById(id).checked = !!s[id]; });
+}catch(e){}
+const saveOpts = () => store.set("xp_opts", JSON.stringify(Object.fromEntries(OPT_IDS.map(id=>[id,document.getElementById(id).checked]))));
 
 function toast(msg){
   const t=$("toast"); t.textContent=msg; t.classList.add("show");
@@ -315,7 +345,10 @@ async function dlMedia(m){
 /* ---------- 一覧表示 ---------- */
 function renderList(){
   $("count").textContent = `${posts.length}件`;
-  $("clearAll").disabled = posts.length===0;
+  $("clearAll").disabled = $("allUnf").disabled = $("noUnf").disabled = posts.length===0;
+  const nImgs = includedMedia().filter(m=>m.view).length;
+  $("copyImgs").disabled = $("dlImgs").disabled = nImgs===0;
+  $("copyImgs").textContent = nImgs ? `画像を1枚にまとめてコピー（${nImgs}点）` : "画像を1枚にまとめてコピー";
   if(!posts.length){ $("list").innerHTML = `<div class="card empty">まだポストがありません</div>`; return; }
   $("list").innerHTML = posts.map((p,i)=>{
     const a = p.author, idx = i+1;
@@ -347,6 +380,7 @@ function renderList(){
           <button data-del="${i}" title="削除">✕</button>
         </div>
       </div>
+      <label class="unf ${isUnf(a.handle)?"on":""}"><input type="checkbox" data-unf="${esc(a.handle)}" ${isUnf(a.handle)?"checked":""}>未フォロー</label>
       ${a.bio?`<div class="bio">${esc(a.bio)}</div>`:""}
       ${am.length?`<div class="meta">${am.join("")}</div>`:""}
       <div class="text">${esc(body)}</div>
@@ -399,7 +433,8 @@ function build(){
   let mediaTotal = 0;
   posts.forEach((p,i)=>{
     const idx = i+1, a = p.author;
-    const L = [`\n━━━━ ${idx}. ${a.name}（@${a.handle}） ━━━━`];
+    const tag = (o("oUnf") && isUnf(a.handle)) ? "【未フォロー】" : "";
+    const L = [`\n━━━━ ${idx}. ${a.name}（@${a.handle}）${tag} ━━━━`];
     if(o("oProfile")){
       if(seen[a.handle]){
         L.push(`プロフィール：${seen[a.handle]}と同じ人物`);
@@ -419,20 +454,87 @@ function build(){
       L.push(`▼ 引用元：${p.quote.author.name}（@${p.quote.author.handle}）`);
       L.push(...bodyLines(p.quote, o("oStats")));
     }
-    const media = mediaOf(p, idx).filter(m => o("oQuote") || !m.fromQuote);
+    const media = mediaOf(p, idx).filter(useMedia);
     if(media.length){
       mediaTotal += media.length;
-      L.push("添付：" + media.map(m=>{
-        let s = m.label;
+      L.push("添付：");
+      media.forEach(m=>{
+        let s = `・${m.label}`;
         if(m.alt) s += `（代替テキスト：${m.alt}）`;
-        if(o("oMediaUrl")) s += ` ${m.kind==="img"?origUrl(m.url):m.url}`;
-        return s;
-      }).join("、"));
+        L.push(s);
+        // URLは単独行に置く（後ろに文字が続くとリンクが壊れるため）
+        if(o("oMediaUrl")) L.push(`  ${m.kind==="img"?origUrl(m.url):m.url}`);
+      });
     }
     out.push(L.join("\n"));
   });
-  if(mediaTotal) out.push(`\n※画像・動画（計${mediaTotal}点）はこのメッセージに番号順で添付しています。`);
+  if(mediaTotal) out.push(`\n※画像・動画（計${mediaTotal}点）は番号ラベル付きでこのメッセージに添付しています（動画はサムネイルのみ）。`);
   $("out").value = out.join("\n");
+}
+
+/* ---------- 画像を1枚にまとめる ---------- */
+function useMedia(m){ return !m.fromQuote || ($("oQuote").checked && $("oQuoteMedia").checked); }
+function includedMedia(){
+  return posts.flatMap((p,i)=>mediaOf(p,i+1).filter(useMedia));
+}
+async function makeCombined(){
+  const items = includedMedia().filter(m=>m.view);
+  if(!items.length) throw new Error("画像がありません");
+  const bmps = [];
+  for(const m of items){
+    try{
+      const blob = await getBlob(m.kind==="img" ? m.url : m.view);
+      bmps.push({m, bmp: await createImageBitmap(blob)});
+    }catch(e){ bmps.push({m, bmp:null}); }
+  }
+  let W = Math.min(1600, Math.max(...bmps.map(b=>b.bmp?b.bmp.width:600)));
+  const LAB = 56, GAP = 16;
+  const heightAt = w => bmps.reduce((s,b)=>s + LAB + (b.bmp ? Math.round(b.bmp.height*Math.min(1,w/b.bmp.width)) : 60) + GAP, 0);
+  // ブラウザのキャンバス上限（高さ約16000px）に収める
+  while(heightAt(W) > 15000 && W > 400) W = Math.round(W*0.85);
+  const H = heightAt(W);
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const g = c.getContext("2d");
+  g.fillStyle = "#ffffff"; g.fillRect(0,0,W,H);
+  let y = 0;
+  for(const {m,bmp} of bmps){
+    g.fillStyle = "#111"; g.fillRect(0,y,W,LAB);
+    g.fillStyle = "#fff"; g.font = "bold 30px sans-serif"; g.textBaseline = "middle";
+    g.fillText(m.label + (m.kind==="video" ? "（動画のサムネイル）" : ""), 16, y+LAB/2);
+    y += LAB;
+    if(bmp){
+      const s = Math.min(1, W/bmp.width), w = Math.round(bmp.width*s), h = Math.round(bmp.height*s);
+      g.drawImage(bmp, Math.round((W-w)/2), y, w, h); y += h;
+    }else{
+      g.fillStyle = "#b54708"; g.font = "24px sans-serif";
+      g.fillText("（この画像は読み込めませんでした）", 16, y+30); y += 60;
+    }
+    y += GAP;
+  }
+  return await new Promise(res=>c.toBlob(res,"image/png"));
+}
+async function copyCombined(){
+  const btn = $("copyImgs"), label = btn.textContent;
+  btn.disabled = true; btn.textContent = "作成中…";
+  try{
+    // Safari対策：Promiseのまま渡す
+    await navigator.clipboard.write([new ClipboardItem({"image/png": makeCombined()})]);
+    toast("画像をコピーしました。AIのチャット欄に貼り付けてください");
+  }catch(e){
+    toast("コピーできなかったため、保存に切り替えます");
+    await dlCombined();
+  }finally{
+    btn.disabled = false; btn.textContent = label;
+  }
+}
+async function dlCombined(){
+  try{
+    const blob = await makeCombined();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = `posts_images_${Date.now()}.png`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href),3000);
+  }catch(e){ toast("画像を作成できませんでした"); }
 }
 
 async function copyOut(){
@@ -448,12 +550,22 @@ async function copyOut(){
 $("go").addEventListener("click",load);
 $("url").addEventListener("keydown",e=>{ if(e.key==="Enter") load(); });
 $("url").addEventListener("paste",()=>setTimeout(()=>{ if(parseUrl($("url").value)) load(); },0));
+$("toOut").addEventListener("click",()=>$("outCard").scrollIntoView({behavior:"smooth",block:"start"}));
+$("toTop").addEventListener("click",()=>{ window.scrollTo({top:0,behavior:"smooth"}); setTimeout(()=>$("url").focus({preventScroll:true}),400); });
 $("clearUrl").addEventListener("click",()=>{ $("url").value=""; showErr(""); $("url").focus(); });
 $("clearAll").addEventListener("click",()=>{
   if(!confirm("追加したポストをすべて削除しますか？")) return;
   posts = []; save(); renderList(); build();
 });
-["oProfile","oStats","oQuote","oMediaUrl"].forEach(id=>$(id).addEventListener("input",build));
+OPT_IDS.forEach(id=>$(id).addEventListener("input",()=>{ saveOpts(); renderList(); build(); }));
+$("copyImgs").addEventListener("click",copyCombined);
+$("dlImgs").addEventListener("click",dlCombined);
+$("allUnf").addEventListener("click",()=>{ posts.forEach(p=>setUnf(p.author.handle,true)); renderList(); build(); toast("全員を未フォローにしました"); });
+$("noUnf").addEventListener("click",()=>{ posts.forEach(p=>setUnf(p.author.handle,false)); renderList(); build(); toast("未フォローを解除しました"); });
+$("list").addEventListener("change",e=>{
+  const c = e.target.closest("[data-unf]"); if(!c) return;
+  setUnf(c.dataset.unf, c.checked); renderList(); build();
+});
 $("copy").addEventListener("click",copyOut);
 $("openClaude").addEventListener("click",async()=>{ if(await copyOut()) window.open("https://claude.ai/new","_blank","noopener"); });
 $("openGpt").addEventListener("click",async()=>{ if(await copyOut()) window.open("https://chatgpt.com/","_blank","noopener"); });
